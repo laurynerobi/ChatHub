@@ -1,12 +1,10 @@
 package src;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -27,7 +25,7 @@ public class Server implements Runnable {
     public void run() {
         try {
             //pass the port number only
-            myServer = new ServerSocket(5000);
+            myServer = new ServerSocket(7000);
             pool = Executors.newCachedThreadPool();
             while(!complete) {
 
@@ -56,6 +54,7 @@ public class Server implements Runnable {
     public void exitHandler () {
         try {
             complete = true;
+            pool.shutdown();
             if (!myServer.isClosed()) {
                 myServer.close();
             }
@@ -77,24 +76,33 @@ public class Server implements Runnable {
         public ClientConnectHandler(Socket myClient){
             this.myClient = myClient;
         }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public Socket getSocket() {
+            return myClient;
+        }
+
         @Override
         public void run() {
             try {
                 //deal with client
                 //initialize reader and writer
                 reader = new BufferedReader(new InputStreamReader(myClient.getInputStream()));
-                writer = new PrintWriter(myClient.getOutputStream());
+                writer = new PrintWriter(myClient.getOutputStream(),true);
                 //prompt user for their username
                 writer.println("Welcome to CHATHUB! Your number one chatting service.");
-                writer.println("Please enter your username");
+                writer.println("Please enter your username: ");
                 username = reader.readLine();
                 //checks if username is blank
-                if(username.isBlank()){
-                    writer.println("Enter a valid user name");
-                    username = reader.readLine();
-                }
-                System.out.println(username + "is connected");
-                messenger(username + "joined the party!");
+//                if(username.isBlank()){
+//                    writer.println("Enter a valid user name");
+//                    username = reader.readLine();
+//                }
+                System.out.println(username + " is connected");
+                messenger(username + " joined the party!");
 
                 //loop to always ask for new messages
                 String clientMessage;
@@ -102,7 +110,7 @@ public class Server implements Runnable {
                     if(clientMessage.startsWith("/user ")) {
                         //handle username
                         String[] divideMessage = clientMessage.split(" ", 2);
-                        if(divideMessage.length == 2) {
+                        if (divideMessage.length == 2) {
                             messenger(username + "changed their username to " + divideMessage[1]);
                             System.out.println(username + "changed their username to " + divideMessage[1]);
                             username = divideMessage[1];
@@ -110,8 +118,9 @@ public class Server implements Runnable {
                         } else {
                             writer.println("Alert: No username was provided!");
                         }
-                    } else if (clientMessage.startsWith("/quit ")) {
-                        messenger(username + "Has left the chat!");
+                    }   else if (clientMessage.startsWith("/quit ")) {
+                        messenger(username + " has left the chat!");
+                        writer.flush();
                         exitHandler();
                     }else {
                         // if no command send username and message to all other users in the chat
@@ -138,11 +147,51 @@ public class Server implements Runnable {
                 //ignore
                 }
             }
+
+        private ConcurrentHashMap<ClientConnectHandler, PrintWriter> connectedClientsWithWriters = new ConcurrentHashMap<>();
+
+        //file handling
+        public void forwardFile(String senderUsername, String receiverUsername, String filename, byte[] data) {
+            // Check if the receiver is connected
+            for (ClientConnectHandler client : connectedClients) {
+                if (client.getUsername().equals(receiverUsername)) {
+                    client.receiveFile(senderUsername, filename, data);
+                    break;
+                }
+            }
         }
 
-    public static void main(String[] args) {
+        public void receiveFile(String senderUsername, String filename, byte[] data) {
+            try {
+                // Create a directory for received files (if it doesn't exist)
+                File receivedDir = new File("received_files");
+                if (!receivedDir.exists()) {
+                    receivedDir.mkdir();
+                }
+
+                // Create a file in the received_files directory
+                File receivedFile = new File("received_files", filename);
+
+                // Write the received data to the file
+                FileOutputStream fos = new FileOutputStream(receivedFile);
+                fos.write(data);
+                fos.close();
+
+                System.out.println(senderUsername + " sent a file: " + filename);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+
+
+    }
+
+
+        public static void main(String[] args) {
     Server myServer = new Server();
     myServer.run();
     }
+
 }
 
